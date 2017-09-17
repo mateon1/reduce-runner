@@ -1,0 +1,12 @@
+[package]
+name = "reduce-runner"
+version = "0.1.0"
+authors = ["Mateusz Naściszewski <matin1111@wp.pl>"]
+
+[[bin]]
+name = "reducewrap"
+path = "src/main.rs"
+
+[dependencies]
+clap = "2.26.0"
+tempdir = "0.3.0"
