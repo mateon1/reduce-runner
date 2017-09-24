@@ -8,5 +8,6 @@ name = "reducewrap"
 path = "src/main.rs"
 
 [dependencies]
+fs_extra = "1.0.0"
 clap = "2.26.0"
 tempdir = "0.3.0"

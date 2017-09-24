@@ -1,9 +1,10 @@
 extern crate clap;
+extern crate fs_extra;
 extern crate tempdir;
 
 use clap::{App, Arg};
-use std::fs::File;
-use std::io::{Read, Write};
+use fs_extra::copy_items;
+use fs_extra::dir::CopyOptions;
 use std::process::{Command, Child};
 use tempdir::TempDir;
 
@@ -65,9 +66,13 @@ fn main() {
         .arg(Arg::with_name("COMMAND").required(true).index(1).help(
             "Shell command to wrap. Replaces {} with tested filename, or appends as last argument",
         ))
-        .arg(Arg::with_name("TESTCASE").required(true).index(2).help(
-            "File being reduced",
-        ))
+        .arg(
+            Arg::with_name("TESTCASE")
+                .required(true)
+                .multiple(true)
+                .index(2)
+                .help("File(s) being reduced"),
+        )
         .arg(
             Arg::with_name("use_filename")
                 .short("f")
@@ -187,30 +192,21 @@ fn main() {
         }
     };
 
-    let test_file = matches.value_of_os("use_filename").unwrap();
+    // let test_file = matches.value_of_os("use_filename").unwrap();
 
     let tmp = TempDir::new("reducewrap").expect("Couldn't create temp directory");
     let filename_path = {
-        let tmp_path = tmp.path();
-        tmp_path.join(test_file)
+        let p = tmp.path();
+        p.to_owned()
     };
+
+
     let filename = filename_path.to_str().unwrap();
-
-    let testcase_arg = matches.value_of_os("TESTCASE").unwrap();
-
     {
-        let mut tmp_file =
-            File::create(filename_path.clone()).expect("Couldn't create temporary file");
-        let mut orig_file = File::open(testcase_arg).unwrap_or_else(|err| {
-            panic!("Couldn't open testcase file {:?}: {}", testcase_arg, err)
-        });
-        let mut testcase_bytes = Vec::new();
-        orig_file.read_to_end(&mut testcase_bytes).expect(
-            "Couldn't read from testcase file",
-        );
-        tmp_file.write_all(testcase_bytes.as_slice()).expect(
-            "Couldn't write to tmp file",
-        );
+        let opt = CopyOptions::new();
+        let src = matches.values_of_os("TESTCASE").unwrap().collect();
+        println!("src {:?} -> dst {:?}", src, filename_path);
+        copy_items(&src, filename_path.clone(), &opt).expect("Failed to copy");
     }
 
     let validator = match matches.value_of("validator") {
