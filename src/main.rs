@@ -2,7 +2,7 @@ extern crate clap;
 extern crate fs_extra;
 extern crate tempdir;
 
-use clap::{App, Arg};
+use clap::{App, Arg, ArgMatches, OsValues};
 use fs_extra::copy_items;
 use fs_extra::dir::CopyOptions;
 use std::process::{Command, Child};
@@ -58,6 +58,76 @@ fn do_run<T: AsRef<str>>(command: T, parallel: usize, parallel_min: usize) -> bo
     passed >= parallel_min
 }
 
+fn run(
+    matches: &ArgMatches,
+    runs: usize,
+    command_arg: String,
+    src_files: OsValues,
+    parallel_min: usize,
+    parallel: usize,
+) {
+    //    run(matches, runs, command_arg, src_files, parallel_min, parallel).unwrap();
+    let tmp = TempDir::new("reducewrap").expect("Couldn't create temp directory");
+    let filename_path = {
+        let p = tmp.path();
+        p.to_owned()
+    };
+
+
+    let filename = filename_path.to_str().unwrap();
+    {
+        let opt = CopyOptions::new();
+        let files = src_files.collect();
+        println!("src {:?} -> dst {:?}", files, filename_path);
+        copy_items(&files, filename_path.clone(), &opt).expect("Failed to copy");
+    }
+
+    let validator = match matches.value_of("validator") {
+        Some(v) => Some(if v.contains("{}") {
+            v.replace("{}", filename)
+        } else {
+            v.to_string() + " " + filename
+        }),
+        None => None,
+    };
+
+    if let Some(v) = validator {
+        println!("Running validator");
+        let p = Command::new("sh")
+            .arg("-c")
+            .arg(v)
+            .status()
+            .unwrap()
+            .code()
+            .unwrap();
+        if p != 0 {
+            println!("Validator script exited {}, exiting", p);
+            tmp.close().unwrap();
+            std::process::exit(p);
+        } else {
+            println!("Success, test is valid");
+        }
+    }
+
+
+    let command = if command_arg.contains("{}") {
+        command_arg.replace("{}", filename)
+    } else {
+        command_arg + " " + filename
+    };
+
+    for run in 1..runs + 1 {
+        println!("Run {}", run);
+        if do_run(&command, parallel, parallel_min) {
+            println!("Successful run {}/{}", run, runs);
+        } else {
+            println!("Failed run {}/{}", run, runs);
+            tmp.close().unwrap();
+            std::process::exit(1);
+        }
+    }
+}
+
 fn main() {
     let matches = App::new("reducewrap")
         .version("0.1")
@@ -72,15 +142,6 @@ fn main() {
                 .multiple(true)
                 .index(2)
                 .help("File(s) being reduced"),
-        )
-        .arg(
-            Arg::with_name("use_filename")
-                .short("f")
-                .long("filename")
-                .takes_value(true)
-                .default_value("tested")
-                .value_name("FILENAME")
-                .help("filename to use when testing"),
         )
         .arg(
             Arg::with_name("interesting_exits")
@@ -192,67 +253,16 @@ fn main() {
         }
     };
 
-    // let test_file = matches.value_of_os("use_filename").unwrap();
-
-    let tmp = TempDir::new("reducewrap").expect("Couldn't create temp directory");
-    let filename_path = {
-        let p = tmp.path();
-        p.to_owned()
-    };
-
-
-    let filename = filename_path.to_str().unwrap();
-    {
-        let opt = CopyOptions::new();
-        let src = matches.values_of_os("TESTCASE").unwrap().collect();
-        println!("src {:?} -> dst {:?}", src, filename_path);
-        copy_items(&src, filename_path.clone(), &opt).expect("Failed to copy");
-    }
-
-    let validator = match matches.value_of("validator") {
-        Some(v) => Some(if v.contains("{}") {
-            v.replace("{}", filename)
-        } else {
-            v.to_string() + " " + filename
-        }),
-        None => None,
-    };
-
-    if let Some(v) = validator {
-        println!("Running validator");
-        let p = Command::new("sh")
-            .arg("-c")
-            .arg(v)
-            .status()
-            .unwrap()
-            .code()
-            .unwrap();
-        if p != 0 {
-            println!("Validator script exited {}, exiting", p);
-            tmp.close().unwrap();
-            std::process::exit(p);
-        } else {
-            println!("Success, test is valid");
-        }
-    }
+    let src_files = matches.values_of_os("TESTCASE").unwrap();
 
     let command_arg = matches.value_of("COMMAND").unwrap().to_string();
 
-    let command = if command_arg.contains("{}") {
-        command_arg.replace("{}", filename)
-    } else {
-        command_arg + " " + filename
-    };
-
-    for run in 1..runs + 1 {
-        println!("Run {}", run);
-        if do_run(&command, parallel, parallel_min) {
-            println!("Successful run {}/{}", run, runs);
-        } else {
-            println!("Failed run {}/{}", run, runs);
-            tmp.close().unwrap();
-            std::process::exit(1);
-        }
-    }
-
+    run(
+        &matches,
+        runs,
+        command_arg,
+        src_files,
+        parallel_min,
+        parallel,
+    );
 }
